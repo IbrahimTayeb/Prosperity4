@@ -1,4 +1,4 @@
-# Prosperity Round 0/1 Starter (with local backtest)
+# Prosperity Round 0 Starter (with local backtest)
 
 This workspace now includes:
 
