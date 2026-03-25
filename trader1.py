@@ -11,10 +11,10 @@ class Trader:
     }
 
     EMERALD_ANCHOR = 10000.0
-    EMERALD_TAKE_EDGE = 1.0
+    EMERALD_TAKE_EDGE = 0.5  # Reduced to capture more opportunities
     TOMATO_WINDOW = 40
-    TOMATO_TAKE_EDGE = 1.5
-    TOMATO_SOFT_LIMIT = 60
+    TOMATO_TAKE_EDGE = 1.0  # Reduced from 1.5 for better fill rates
+    TOMATO_SOFT_LIMIT = 50  # Reduced from 60 for more aggressive positioning
 
     def bid(self):
         return 15
@@ -86,22 +86,31 @@ class Trader:
         sell_enabled = True
         if product == "TOMATOES":
             # Avoid repeatedly fading strong directional moves.
-            if trend < -1.0:
+            if trend < -1.5:  # Increased threshold for more trend-following
                 buy_enabled = False
-            elif trend > 1.0:
+            elif trend > 1.5:   # Increased threshold for more trend-following
                 sell_enabled = False
-            edge += min(1.5, abs(trend) * 0.35)
+            # Enhanced trend weighting for better momentum capture
+            edge += min(2.0, abs(trend) * 0.5)
 
-            # Cap one-iteration TOMATOES aggression to reduce runaway inventory.
-            buy_capacity = min(buy_capacity, 8)
-            sell_capacity = min(sell_capacity, 8)
+            # More aggressive capacity for strong trends
+            if abs(trend) > 2.0:
+                buy_capacity = min(buy_capacity, 12)
+                sell_capacity = min(sell_capacity, 12)
+            else:
+                buy_capacity = min(buy_capacity, 8)
+                sell_capacity = min(sell_capacity, 8)
 
         if buy_enabled:
             for ask_price in sorted(depth.sell_orders):
                 if ask_price >= fair - edge:
                     break
                 ask_volume = -depth.sell_orders[ask_price]
-                qty = min(ask_volume, buy_capacity)
+                # For EMERALDS, be more aggressive in buying cheap
+                if product == "EMERALDS":
+                    qty = min(ask_volume, buy_capacity, 10)
+                else:
+                    qty = min(ask_volume, buy_capacity)
                 if qty <= 0:
                     break
                 orders.append(Order(product, ask_price, qty))
@@ -112,7 +121,11 @@ class Trader:
                 if bid_price <= fair + edge:
                     break
                 bid_volume = depth.buy_orders[bid_price]
-                qty = min(bid_volume, sell_capacity)
+                # For EMERALDS, be more aggressive in selling high
+                if product == "EMERALDS":
+                    qty = min(bid_volume, sell_capacity, 10)
+                else:
+                    qty = min(bid_volume, sell_capacity)
                 if qty <= 0:
                     break
                 orders.append(Order(product, bid_price, -qty))
@@ -139,13 +152,20 @@ class Trader:
         if bid_px >= ask_px:
             ask_px = bid_px + 1
 
-        quote_size = 6 if abs(skew) < 0.5 else 3
-        if product == "TOMATOES" and abs(position) >= self.TOMATO_SOFT_LIMIT:
-            quote_size = 2
+        # Improved quote sizing based on position and trend
+        if product == "EMERALDS":
+            quote_size = 8 if abs(skew) < 0.5 else 4  # Slightly increased EMERALDS quoting
+        else:  # TOMATOES
+            if abs(position) >= self.TOMATO_SOFT_LIMIT:
+                quote_size = 2
+            elif abs(trend) > 1.0:  # More aggressive during trends
+                quote_size = 8
+            else:
+                quote_size = 6 if abs(skew) < 0.5 else 3
 
         if product == "TOMATOES":
             # Shift TOMATOES quotes with trend to reduce adverse selection.
-            trend_shift = max(-2, min(2, int(round(trend))))
+            trend_shift = max(-2, min(2, int(round(trend * 0.5))))
             bid_px += trend_shift
             ask_px += trend_shift
             if bid_px >= ask_px:
